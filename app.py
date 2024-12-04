@@ -383,5 +383,42 @@ def get_participants(playdate_id):
     }), 200
 
 
+@app.route('/users/<int:user_id>', methods=['DELETE'])
+def remove_user(user_id):
+    user = data_manager.get_user_by_id(user_id)
+
+    if user:
+        try:
+            data_manager.remove_user(user_id)
+            return jsonify({"message": "User deleted successfully!"}), 200
+        except Exception as e:
+            return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+    return jsonify({"message": "User not found!"}), 404
+
+
+@app.route('/users/<int:user_id>', methods=['PUT'])
+def update_user(user_id):
+    data = request.get_json()
+
+    user = data_manager.get_user_by_id(user_id)
+    if not user:
+        return jsonify({"message": "User not found!"}), 404
+
+    # Update the user fields if new values are provided
+    user.username = data.get('username', user.username)
+    user.first_name = data.get('first_name', user.first_name)
+    user.last_name = data.get('last_name', user.last_name)
+    user.email = data.get('email', user.email)
+    user.password = data.get('password', user.password)
+
+    try:
+        db.session.commit()
+        return jsonify({"message": "User updated successfully!"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
 if __name__ == '__main__':
     app.run(debug=True)
