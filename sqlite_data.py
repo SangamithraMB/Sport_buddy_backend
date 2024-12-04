@@ -11,6 +11,7 @@ class SQLiteSportBuddyDataManager(BaseModel, ABC):
     def __init__(self, db: SQLAlchemy):
         """Initialize the SQLiteSportBuddyDataManager with the SQLAlchemy instance."""
         self.db = db
+        self.mapbox_api_key = "pk.eyJ1Ijoic2F2a292aWNsYXphcjEiLCJhIjoiY2xoNm05ODE4MDY0bzNwcGc1ZTVrcHBucyJ9.ThvLS1wl4OM-Ahpbi5Wmew"
 
     def get_all_users(self):
         """Return a list of all users."""
@@ -20,9 +21,10 @@ class SQLiteSportBuddyDataManager(BaseModel, ABC):
         """Return a list of all sports."""
         return Sport.query.all()
 
-    def get_all_sport_interest(self):
-        """Return sport interest."""
-        return SportInterest.query.all()
+    def get_all_sport_interest(self,user_id, sport_id):
+        """Return sport interest based on user_id and sport_id."""
+        sport_interest = SportInterest.query.get(user_id, sport_id)
+        return sport_interest.sport_interest_added if sport_interest else []
 
     def get_user_playdates_created(self, user_id):
         """Return a list of events for a specific user."""
@@ -99,20 +101,12 @@ class SQLiteSportBuddyDataManager(BaseModel, ABC):
         self.db.session.add(sport_interest)
         self.db.session.commit()
 
-    def fetch_event_details(self, event_name):
-        """Fetch event details from an external API (if applicable)."""
-        # Placeholder for external API integration
-        api_url = f"https://api.example.com/events/{event_name}"
-        response = requests.get(api_url)
-        if response.status_code == 200:
-            return response.json()
-        return None
-
     def add_participant(self, user_id, playdate_id):
         """Add a user as a participant to a playdate."""
         playdate = Playdate.query.get(playdate_id)
         if playdate:
-            if playdate.max_participants and len(playdate.participants) >= playdate.participants:
+            current_participants = len(playdate.participants)
+            if playdate.max_participants and current_participants >= playdate.max_participants:
                 raise ValueError("This playdate has reached the maximum number of participants.")
         participant = Participant(user_id=user_id, playdate_id=playdate_id)
         self.db.session.add(participant)
@@ -129,3 +123,38 @@ class SQLiteSportBuddyDataManager(BaseModel, ABC):
         """Get a list of participants for a specific playdate."""
         playdate = Playdate.query.get(playdate_id)
         return [participant.user for participant in playdate.participants] if playdate else []
+
+    def get_location_coordinates(self, address: str, limit: int = 1):
+        """
+        Fetch latitude and longitude from Mapbox for a given place name.
+
+        :param address: The name of the place to geocode.
+        :param limit: Number of results to retrieve (default is 1).
+        :return: Tuple of (latitude, longitude) if successful, otherwise (None, None).
+        """
+        url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{address}.json"
+        params = {
+            'access_token': self.mapbox_api_key,
+            'limit': limit
+        }
+
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()  # Raise an exception for HTTP errors
+            data = response.json()
+
+            if not data.get('features'):
+                print(f"No geolocation data found for {address}.")
+                return None, None
+
+            # Extract latitude and longitude from the first feature
+            latitude = data['features'][0]['geometry']['coordinates'][1]
+            longitude = data['features'][0]['geometry']['coordinates'][0]
+            return latitude, longitude
+
+        except requests.RequestException as e:
+            print(f"Error fetching location for {address}: {e}")
+            return None, None
+        except KeyError:
+            print("Unexpected response structure from Mapbox.")
+            return None, None

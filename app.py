@@ -1,16 +1,16 @@
 import os
 from datetime import datetime
-
 from flask_migrate import Migrate
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
-from models import User, Playdate, db, Sport, SportInterest, SportType
+from models import User, Playdate, db, Sport, SportInterest, SportType, Participant
 from sqlite_data import SQLiteSportBuddyDataManager
 
 load_dotenv()
 
 app = Flask(__name__)
 migrate = Migrate(app, db)
+
 # Configuring SQLite database
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(basedir, "data", "sport_buddy.sqlite")}'
@@ -35,6 +35,11 @@ def home():
 @app.route('/users', methods=['POST'])
 def add_user():
     data = request.get_json()
+
+    required_fields = ('username', 'first_name', 'last_name', 'email', 'password')
+    if not all(field in data and data[field] for field in required_fields):
+        return jsonify({'error': 'Missing or empty required fields'}), 400
+
     username = data.get('username')
     first_name = data.get('first_name')
     last_name = data.get('last_name')
@@ -51,27 +56,22 @@ def add_user():
 def add_sport():
     data = request.get_json()
 
-    # Validate that the required fields are present
     if not data.get('sport_name'):
         return jsonify({'error': 'Sport name is required'}), 400
     if 'sport_type' in data and data['sport_type'] not in [e.value for e in SportType]:
         return jsonify({'error': 'Invalid sport type'}), 400
 
     try:
-        # Set the sport_type to SportType.BOTH by default, or use the one provided in the request
         sport_type = SportType[data['sport_type'].upper()] if 'sport_type' in data else SportType.BOTH
 
-        # Create a new sport instance
         new_sport = Sport(
             sport_name=data['sport_name'],
             sport_type=sport_type
         )
 
-        # Add to the session and commit to the database
         db.session.add(new_sport)
         db.session.commit()
 
-        # Return the created sport data
         return jsonify({
             'id': new_sport.id,
             'sport_name': new_sport.sport_name,
@@ -87,7 +87,8 @@ def add_sport():
 @app.route('/users', methods=['GET'])
 def get_users():
     users = data_manager.get_all_users()
-    users_data = [{"id": user.id, "username": user.username} for user in users]
+    users_data = [{"id": user.id, "username": user.username, "first_name": user.first_name, "last_name": user.last_name}
+                  for user in users]
     return jsonify(users_data)
 
 
@@ -121,10 +122,13 @@ def add_playdate():
     data = request.get_json()
 
     # Ensure all required fields are present
-    if not all(k in data for k in ('title', 'sport_id', 'creator_id', 'address', 'longitude', 'latitude', 'date')):
+    if not all(k in data for k in ('title', 'sport_id', 'creator_id', 'address', 'date')):
         return jsonify({'error': 'Missing required fields'}), 400
 
     try:
+        latitude, longitude = data_manager.get_location_coordinates(data['address'])
+        if latitude is None or longitude is None:
+            return jsonify({'error': 'Unable to fetch coordinates for the address'}), 400
         # Parse the 'date' string to a Python datetime object
         playdate_date = datetime.strptime(data['date'], '%d-%m-%Y %H:%M:%S')
 
@@ -134,8 +138,8 @@ def add_playdate():
             sport_id=data['sport_id'],
             creator_id=data['creator_id'],
             address=data['address'],
-            longitude=data['longitude'],
-            latitude=data['latitude'],
+            longitude=longitude,
+            latitude=latitude,
             date=playdate_date,
             max_participants=data.get('max_participants')
         )
@@ -203,9 +207,14 @@ def get_playdate(playdate_id):
 
 # Endpoint to add a sport_interest
 @app.route('/sport_interest', methods=['POST'])
-def add_sport_interest(sport_id):
+def add_sport_interest():
     data = request.get_json()
+
+    if not data or not all(key in data for key in ('user_id', 'sport_id')):
+        return jsonify({"error": "Missing required fields: 'user_id' and/or 'sport_id'"}), 400
+
     user_id = data.get('user_id')
+    sport_id = data.get('sport_id')
 
     user = data_manager.get_user_by_id(user_id)
     sport = data_manager.get_sport_by_id(sport_id)
@@ -220,13 +229,15 @@ def add_sport_interest(sport_id):
 @app.route('/sport_interest', methods=['GET'])
 def get_sport_interest():
     """Fetch all sport interests."""
-    sport_interest = data_manager.get_all_sport_interest()
-    if sport_interest:
-        sport_interest_data = {
-            "id": sport_interest.id,
-            "sport_id": sport_interest.sport_id,
-            "user_id": sport_interest.creator_id,
-        }
+    sport_interests = SportInterest.query.all()
+    if sport_interests:
+        sport_interest_data = [
+            {
+                "id": sport_interest.id,
+                "sport_id": sport_interest.sport_id,
+                "user_id": sport_interest.user_id,
+            } for sport_interest in sport_interests
+        ]
         return jsonify(sport_interest_data)
     return jsonify({"message": "Sport Interest not found!"}), 404
 
@@ -237,13 +248,57 @@ def add_participant(playdate_id):
     data = request.get_json()
     user_id = data.get('user_id')
 
-    user = data_manager.get_user_by_id(user_id)
-    playdate = data_manager.get_playdate_by_id(playdate_id)
+    if not user_id:
+        return jsonify({"message": "Missing 'user_id' in request data!"}), 400
 
-    if user and playdate:
-        data_manager.add_participant(user_id=user.id, playdate_id=playdate.id)
-        return jsonify({"message": "User added as a participant!"}), 201
-    return jsonify({"message": "User or playdate not found!"}), 404
+    # Fetch user and playdate from the database
+    user = User.query.get(user_id)
+    playdate = Playdate.query.get(playdate_id)
+
+    if not user:
+        return jsonify({"message": f"User with ID {user_id} not found!"}), 404
+    if not playdate:
+        return jsonify({"message": f"Playdate with ID {playdate_id} not found!"}), 404
+
+    existing_participant = Participant.query.filter_by(user_id=user.id, playdate_id=playdate.id).first()
+    if existing_participant:
+        return jsonify({"message": "User is already a participant!"}), 409
+
+    current_participants = len(playdate.participants)
+    if playdate.max_participants and current_participants >= playdate.max_participants:
+        return jsonify({"message": "Playdate has reached its maximum capacity!"}), 403
+
+    try:
+        new_participant = Participant(user_id=user.id, playdate_id=playdate.id)
+        db.session.add(new_participant)
+        db.session.commit()
+
+        updated_playdate = Playdate.query.get(playdate_id)
+        updated_participants_count = len(updated_playdate.participants)
+
+        print(f"Playdate ID {playdate_id} now has {updated_participants_count} participants.")
+    except Exception as e:
+        return jsonify({"message": f"An error occurred: {str(e)}"}), 500
+
+    # Serialize the Playdate object
+    playdate_dict = {
+        "id": updated_playdate.id,
+        "title": updated_playdate.title,
+        "date": updated_playdate.date.strftime('%Y-%m-%d %H:%M:%S') if updated_playdate.date else None,
+        "max_participants": updated_playdate.max_participants,
+        "participants_count": updated_participants_count,
+        "participants": [
+            {"id": participant.user_id, "username": User.query.get(participant.user_id).username}
+            # Fetch user by user_id
+            for participant in updated_playdate.participants
+        ]
+    }
+
+    return jsonify({
+        "message": "User added as a participant!",
+        "playdate": playdate_dict,
+        "participants_count": updated_participants_count
+    }), 201
 
 
 # Endpoint to remove a participant from a playdate
@@ -252,13 +307,80 @@ def remove_participant(playdate_id):
     data = request.get_json()
     user_id = data.get('user_id')
 
-    user = data_manager.get_user_by_id(user_id)
-    playdate = data_manager.get_playdate_by_id(playdate_id)
+    # Fetch user and playdate from the database
+    user = User.query.get(user_id)
+    playdate = Playdate.query.get(playdate_id)
 
-    if user and playdate:
-        data_manager.remove_participant(user_id=user.id, playdate_id=playdate.id)
-        return jsonify({"message": "User removed from participants!"}), 200
-    return jsonify({"message": "User or playdate not found!"}), 404
+    # Check if both the user and the playdate exist
+    if not user or not playdate:
+        return jsonify({"message": "User or playdate not found!"}), 404
+
+    # Check if the user is already a participant in the playdate
+    participant = Participant.query.filter_by(user_id=user.id, playdate_id=playdate.id).first()
+    if not participant:
+        return jsonify({"message": "User is not a participant in this playdate!"}), 404
+
+    # Remove the participant from the playdate
+    try:
+        db.session.delete(participant)
+        db.session.commit()
+
+        # Refresh playdate to get the updated participant list and count
+        updated_playdate = Playdate.query.get(playdate_id)
+        updated_participants_count = len(updated_playdate.participants)
+
+        # Serialize the updated playdate data
+        playdate_dict = {
+            "id": updated_playdate.id,
+            "title": updated_playdate.title,
+            "date": updated_playdate.date.strftime('%Y-%m-%d %H:%M:%S') if updated_playdate.date else None,
+            "max_participants": updated_playdate.max_participants,
+            "participants_count": updated_participants_count,
+            "participants": [
+                {"id": participant.user_id, "username": User.query.get(participant.user_id).username}
+                for participant in updated_playdate.participants
+            ]
+        }
+
+        return jsonify({
+            "message": "User removed from participants!",
+            "playdate": playdate_dict,
+            "participants_count": updated_participants_count
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()  # In case of an error, rollback the transaction
+        return jsonify({"message": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route('/playdates/<int:playdate_id>/participants', methods=['GET'])
+def get_participants(playdate_id):
+    playdate = Playdate.query.get(playdate_id)
+
+    if not playdate:
+        return jsonify({"message": "Playdate not found!"}), 404
+
+    participants = Participant.query.filter_by(playdate_id=playdate_id).all()
+
+    if not participants:
+        return jsonify({"message": "No participants found for this playdate!"}), 404
+
+    # Serialize the participant data
+    participants_list = [
+        {
+            "id": participant.user_id,
+            "username": User.query.get(participant.user_id).username
+        }
+        for participant in participants
+    ]
+
+    return jsonify({
+        "playdate_id": playdate_id,
+        "title": playdate.title,
+        "max_participants": playdate.max_participants,
+        "participants_count": len(participants_list),
+        "participants": participants_list
+    }), 200
 
 
 if __name__ == '__main__':
