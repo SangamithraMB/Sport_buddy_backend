@@ -251,7 +251,6 @@ def add_participant(playdate_id):
     if not user_id:
         return jsonify({"message": "Missing 'user_id' in request data!"}), 400
 
-    # Fetch user and playdate from the database
     user = User.query.get(user_id)
     playdate = Playdate.query.get(playdate_id)
 
@@ -289,7 +288,6 @@ def add_participant(playdate_id):
         "participants_count": updated_participants_count,
         "participants": [
             {"id": participant.user_id, "username": User.query.get(participant.user_id).username}
-            # Fetch user by user_id
             for participant in updated_playdate.participants
         ]
     }
@@ -307,11 +305,9 @@ def remove_participant(playdate_id):
     data = request.get_json()
     user_id = data.get('user_id')
 
-    # Fetch user and playdate from the database
     user = User.query.get(user_id)
     playdate = Playdate.query.get(playdate_id)
 
-    # Check if both the user and the playdate exist
     if not user or not playdate:
         return jsonify({"message": "User or playdate not found!"}), 404
 
@@ -325,7 +321,6 @@ def remove_participant(playdate_id):
         db.session.delete(participant)
         db.session.commit()
 
-        # Refresh playdate to get the updated participant list and count
         updated_playdate = Playdate.query.get(playdate_id)
         updated_participants_count = len(updated_playdate.participants)
 
@@ -405,7 +400,6 @@ def update_user(user_id):
     if not user:
         return jsonify({"message": "User not found!"}), 404
 
-    # Update the user fields if new values are provided
     user.username = data.get('username', user.username)
     user.first_name = data.get('first_name', user.first_name)
     user.last_name = data.get('last_name', user.last_name)
@@ -415,6 +409,42 @@ def update_user(user_id):
     try:
         db.session.commit()
         return jsonify({"message": "User updated successfully!"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route('/sports/<int:sport_id>', methods=['DELETE'])
+def delete_sport(sport_id):
+    sport = data_manager.get_sport_by_id(sport_id)
+
+    if sport:
+        try:
+            db.session.delete(sport)
+            db.session.commit()
+            return jsonify({"message": "Sport deleted successfully!"}), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+    return jsonify({"message": "Sport not found!"}), 404
+
+
+@app.route('/sports/<int:sport_id>', methods=['PUT'])
+def update_sport(sport_id):
+    data = request.get_json()
+
+    sport = data_manager.get_sport_by_id(sport_id)
+    if not sport:
+        return jsonify({"message": "Sport not found!"}), 404
+
+    sport.sport_name = data.get('sport_name', sport.sport_name)
+    if 'sport_type' in data and data['sport_type'] in [e.value for e in SportType]:
+        sport.sport_type = SportType[data['sport_type'].upper()]
+
+    try:
+        db.session.commit()
+        return jsonify({"message": "Sport updated successfully!"}), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500

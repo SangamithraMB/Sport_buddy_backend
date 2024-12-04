@@ -1,6 +1,5 @@
 import os
 from abc import ABC
-
 from flask_sqlalchemy import SQLAlchemy
 from config import BaseModel
 from models import User, Sport, SportInterest, Playdate, Participant
@@ -47,6 +46,15 @@ class SQLiteSportBuddyDataManager(BaseModel, ABC):
         """Add a new sport to the database."""
         self.db.session.add(sport)
         self.db.session.commit()
+
+
+    def remove_sport(self, sport_id):
+        """Remove a user from the database."""
+        sport = Sport.query.get(sport_id)
+        if sport:
+            self.db.session.delete(sport)
+            self.db.session.commit()
+
 
     def add_playdate(self, playdate):
         """Add a new event (playdate) to the database."""
