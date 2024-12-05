@@ -20,7 +20,7 @@ class SQLiteSportBuddyDataManager(BaseModel, ABC):
         """Return a list of all sports."""
         return Sport.query.all()
 
-    def get_all_sport_interest(self,user_id, sport_id):
+    def get_all_sport_interest(self, user_id, sport_id):
         """Return sport interest based on user_id and sport_id."""
         sport_interest = SportInterest.query.get(user_id, sport_id)
         return sport_interest.sport_interest_added if sport_interest else []
@@ -46,15 +46,6 @@ class SQLiteSportBuddyDataManager(BaseModel, ABC):
         """Add a new sport to the database."""
         self.db.session.add(sport)
         self.db.session.commit()
-
-
-    def remove_sport(self, sport_id):
-        """Remove a user from the database."""
-        sport = Sport.query.get(sport_id)
-        if sport:
-            self.db.session.delete(sport)
-            self.db.session.commit()
-
 
     def add_playdate(self, playdate):
         """Add a new event (playdate) to the database."""
