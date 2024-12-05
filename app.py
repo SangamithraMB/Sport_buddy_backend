@@ -1,6 +1,6 @@
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from flask_migrate import Migrate
 from dotenv import load_dotenv
@@ -135,7 +135,6 @@ def add_playdate():
         latitude, longitude = data_manager.get_location_coordinates(data['address'])
         if latitude is None or longitude is None:
             return jsonify({'error': 'Unable to fetch coordinates for the address'}), 400
-        # Parse the 'date' string to a Python datetime object
         playdate_date = datetime.strptime(data['date'], '%d-%m-%Y %H:%M:%S')
 
         # Create a new playdate
@@ -221,6 +220,12 @@ def add_sport_interest():
 
     user_id = data.get('user_id')
     sport_id = data.get('sport_id')
+
+    user = User.query.get(user_id)
+    sport = Sport.query.get(sport_id)
+
+    if not user or not sport:
+        return jsonify({"error": "User or sport not found!"}), 404
 
     user = data_manager.get_user_by_id(user_id)
     sport = data_manager.get_sport_by_id(sport_id)
@@ -317,12 +322,10 @@ def remove_participant(playdate_id):
     if not user or not playdate:
         return jsonify({"message": "User or playdate not found!"}), 404
 
-    # Check if the user is already a participant in the playdate
     participant = Participant.query.filter_by(user_id=user.id, playdate_id=playdate.id).first()
     if not participant:
         return jsonify({"message": "User is not a participant in this playdate!"}), 404
 
-    # Remove the participant from the playdate
     try:
         db.session.delete(participant)
         db.session.commit()
@@ -524,7 +527,8 @@ def login():
     user = User.query.filter_by(email=email).first()
 
     if user and user.password == password:
-        access_token = create_access_token(identity={"id": user.id, "username": user.username})
+        identity = f"{user.id}_{user.username}"
+        access_token = create_access_token(identity=identity, expires_delta=timedelta(hours=8))
         return jsonify({"access_token": access_token}), 200
     else:
         return jsonify({"error": "Invalid email or password"}), 401
@@ -533,11 +537,8 @@ def login():
 @app.route('/protected', methods=['GET'])
 @jwt_required()
 def protected():
-    print(f"Request Headers: {request.headers}")
-    token = request.headers.get("Authorization")
-    print(f"Received token: {token}")
     current_user = get_jwt_identity()
-    return jsonify(logged_in_as=current_user), 200
+    return jsonify(msg=f"Hello {current_user}, you are logged in!")
 
 
 if __name__ == '__main__':

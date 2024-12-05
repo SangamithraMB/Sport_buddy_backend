@@ -84,16 +84,6 @@ class SQLiteSportBuddyDataManager(BaseModel, ABC):
         """Return a user by their username."""
         return User.query.filter_by(username=username).first()
 
-    def get_users_nearby(self, latitude, longitude, radius=10):
-        """Fetch users nearby based on latitude/longitude."""
-        # This method assumes your User model has `latitude` and `longitude` fields.
-        # It filters users within a certain radius from the given coordinates.
-        # Implement your own logic or use a geospatial library (like GeoAlchemy) for better geospatial queries.
-        nearby_users = User.query.filter(
-            (User.latitude - latitude) ** 2 + (User.longitude - longitude) ** 2 <= radius ** 2
-        ).all()
-        return nearby_users
-
     def add_sport_interest(self, user_id, sport_id):
         """Add a new sport interest for a user."""
         sport_interest = SportInterest(user_id=user_id, sport_id=sport_id)
@@ -139,14 +129,13 @@ class SQLiteSportBuddyDataManager(BaseModel, ABC):
 
         try:
             response = requests.get(url, params=params)
-            response.raise_for_status()  # Raise an exception for HTTP errors
+            response.raise_for_status()
             data = response.json()
 
             if not data.get('features'):
                 print(f"No geolocation data found for {address}.")
                 return None, None
 
-            # Extract latitude and longitude from the first feature
             latitude = data['features'][0]['geometry']['coordinates'][1]
             longitude = data['features'][0]['geometry']['coordinates'][0]
             return latitude, longitude
