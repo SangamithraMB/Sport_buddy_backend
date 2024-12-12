@@ -10,7 +10,7 @@ class SQLiteSportBuddyDataManager(BaseModel, ABC):
     def __init__(self, db: SQLAlchemy):
         """Initialize the SQLiteSportBuddyDataManager with the SQLAlchemy instance."""
         self.db = db
-        self.mapbox_api_key = "pk.eyJ1Ijoic2F2a292aWNsYXphcjEiLCJhIjoiY2xoNm05ODE4MDY0bzNwcGc1ZTVrcHBucyJ9.ThvLS1wl4OM-Ahpbi5Wmew"
+        self.mapbox_api_key = os.getenv("mapbox_api_key")
 
     def get_all_users(self):
         """Return a list of all users."""
