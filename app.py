@@ -1,10 +1,12 @@
 import os
 import secrets
 from datetime import datetime, timedelta
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
-from flask_migrate import Migrate
+
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
+from flask_migrate import Migrate
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
+
 from models import User, Playdate, db, Sport, SportInterest, SportType, Participant
 from sqlite_data import SQLiteSportBuddyDataManager
 
@@ -494,7 +496,8 @@ def update_playdate(playdate_id):
     playdate.sport_id = data.get('sport_id', playdate.sport_id)
     playdate.creator_id = data.get('creator_id', playdate.creator_id)
     playdate.address = data.get('address', playdate.address)
-    playdate.date = datetime.strptime(data.get('date', playdate.date.strftime('%d-%m-%Y %H:%M:%S')), '%d-%m-%Y %H:%M:%S')
+    playdate.date = datetime.strptime(data.get('date', playdate.date.strftime('%d-%m-%Y %H:%M:%S')),
+                                      '%d-%m-%Y %H:%M:%S')
     playdate.max_participants = data.get('max_participants', playdate.max_participants)
 
     try:
@@ -527,7 +530,7 @@ def login():
     user = User.query.filter_by(email=email).first()
 
     if user and user.password == password:
-        identity = f"{user.id}_{user.username}"
+        identity = f"{user.username}"
         access_token = create_access_token(identity=identity, expires_delta=timedelta(hours=8))
         return jsonify({"access_token": access_token}), 200
     else:
