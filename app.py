@@ -22,6 +22,9 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Set up JWT configuration
 app.config["JWT_SECRET_KEY"] = secrets.token_hex(32)
+app.config['JWT_TOKEN_LOCATION'] = ['headers']
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=8)
+app.config['JWT_BLACKLIST_ENABLED'] = True
 jwt = JWTManager(app)
 
 # Initialize SQLAlchemy
@@ -32,6 +35,8 @@ with app.app_context():
     db.create_all()
 
 data_manager = SQLiteSportBuddyDataManager(db)
+
+revoked_tokens = set()
 
 
 @app.route('/')
@@ -531,7 +536,7 @@ def login():
 
     if user and user.password == password:
         identity = f"{user.username}"
-        access_token = create_access_token(identity=identity, expires_delta=timedelta(hours=8))
+        access_token = create_access_token(identity=identity)
         return jsonify({"access_token": access_token}), 200
     else:
         return jsonify({"error": "Invalid email or password"}), 401
@@ -542,6 +547,22 @@ def login():
 def protected():
     current_user = get_jwt_identity()
     return jsonify(msg=f"Hello {current_user}, you are logged in!")
+
+
+@jwt.token_in_blocklist_loader
+def check_if_token_in_blacklist(jwt_header, jwt_payload):
+    """Check if a token is in the list of revoked tokens."""
+    jti = jwt_payload['jti']
+    return jti in revoked_tokens
+
+
+@app.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    """Log out the user by revoking the JWT token."""
+    jti = get_jwt()['jti']
+    revoked_tokens.add(jti)
+    return jsonify({"message": "Successfully logged out!"}), 200
 
 
 if __name__ == '__main__':
