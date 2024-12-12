@@ -14,7 +14,7 @@ load_dotenv()
 
 app = Flask(__name__)
 migrate = Migrate(app, db)
-
+port = int(os.getenv("PORT", 5000))
 # Configuring SQLite database
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(basedir, "data", "sport_buddy.sqlite")}'
@@ -566,4 +566,4 @@ def logout():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=port)
