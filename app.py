@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
 
@@ -13,6 +14,7 @@ from sqlite_data import SQLiteSportBuddyDataManager
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app)
 migrate = Migrate(app, db)
 
 # Configuring SQLite database
