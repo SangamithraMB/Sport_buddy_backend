@@ -205,11 +205,13 @@ def get_playdates():
 @app.route('/playdates/<int:playdate_id>', methods=['GET'])
 def get_playdate(playdate_id):
     playdate = data_manager.get_playdate_by_id(playdate_id)
+    sports = Sport.query.all()
+
     if playdate:
         playdate_data = {
             "id": playdate.id,
             "title": playdate.title,
-            "sport_id": playdate.sport_id,
+            "sport_name": next((sport.sport_name for sport in sports if sport.id == playdate.sport_id), None),
             "creator_id": playdate.creator_id,
             "address": playdate.address,
             "latitude": playdate.latitude,
