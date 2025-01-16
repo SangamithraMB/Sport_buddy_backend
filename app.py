@@ -183,11 +183,13 @@ def add_playdate():
 @app.route('/playdates', methods=['GET'])
 def get_playdates():
     playdates = Playdate.query.all()
+    sports = Sport.query.all()
+
     playdates_data = [
         {
             "id": playdate.id,
             "title": playdate.title,
-            "sport_id": playdate.sport_id,
+            "sport_name": next((sport.sport_name for sport in sports if sport.id == playdate.sport_id), None),
             "creator_id": playdate.creator_id,
             "address": playdate.address,
             "latitude": playdate.latitude,
