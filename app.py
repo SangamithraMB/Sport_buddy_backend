@@ -320,10 +320,8 @@ def add_participant(playdate_id):
 
 
 # Endpoint to remove a participant from a playdate
-@app.route('/playdates/<int:playdate_id>/participants', methods=['DELETE'])
-def remove_participant(playdate_id):
-    data = request.get_json()
-    user_id = data.get('user_id')
+@app.route('/playdates/<int:playdate_id>/participants/<int:user_id>', methods=['DELETE'])
+def remove_participant(playdate_id, user_id):
 
     user = User.query.get(user_id)
     playdate = Playdate.query.get(playdate_id)
