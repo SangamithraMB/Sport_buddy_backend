@@ -326,7 +326,6 @@ def add_participant(playdate_id):
 # Endpoint to remove a participant from a playdate
 @app.route('/playdates/<int:playdate_id>/participants/<int:user_id>', methods=['DELETE'])
 def remove_participant(playdate_id, user_id):
-
     user = User.query.get(user_id)
     playdate = Playdate.query.get(playdate_id)
 
@@ -540,7 +539,12 @@ def login():
 
     if user and user.password == password:
         identity = f"{user.username}"
-        access_token = create_access_token(identity=identity)
+        access_token = create_access_token(identity=identity, additional_claims={
+            "email": user.email,
+            "firstName": user.first_name,
+            "lastName": user.last_name,
+            "userId": user.id
+        })
         return jsonify({"access_token": access_token}), 200
     else:
         return jsonify({"error": "Invalid email or password"}), 401
