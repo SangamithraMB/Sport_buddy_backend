@@ -7,15 +7,15 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
-from flask_socketio import SocketIO, emit, join_room
+from flask_socketio import SocketIO, emit, join_room, leave_room
 
-from models import User, Playdate, db, Sport, SportInterest, SportType, Participant, Chat
+from models import User, Playdate, db, Sport, SportInterest, SportType, Participant, Chat, MessageType
 from sqlite_data import SQLiteSportBuddyDataManager
 
 load_dotenv()
 
 app = Flask(__name__)
-socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 CORS(app)
 migrate = Migrate(app, db)
 
@@ -626,49 +626,97 @@ def add_chat():
     return jsonify({'message': 'Chat added successfully'}), 201
 
 
-@socketio.on('join_room')
-def handle_join_room(data):
+@socketio.on('join')
+def handle_join(data):
+    username = data['username']
     room = data['room']
-    join_room(room)  # Joins the room with the name `room`
-    print(f'User has entered room: {room}')
+
+    # Join the room
+    join_room(room)
+
+    # Notify the room that a user has joined
+    emit('message', {'user': 'system', 'message': f'{username} has joined the room.'}, to=room)
+
+
+@socketio.on('get_chat_history')
+def handle_chat_history(data):
+    room = data['room']
+
+    # Fetch chat history from the database for the room
+    chats = Chat.query.filter_by(room=room).all()
+
+    # Create a list of message data to send back
+    messages = [
+        {'user': chat.sender, 'message': chat.message, 'message_type': chat.message_type.name}
+        for chat in chats
+    ]
+
+    # Emit the chat history to the client
+    emit('chat_history', {'messages': messages})
 
 
 @socketio.on('message')
 def handle_message(message):
     print(f"Received message: {message}")
     socketio.send(f"Server received: {message}")
+    emit('response', f"Server received your message: {message}")
 
 
 @socketio.on('send_message')
+@jwt_required()
 def handle_send_message(data):
-    sender_id = data['sender_id']
+    current_user_id = get_jwt_identity()
+    sender_id = current_user_id
     receiver_id = data['receiver_id']
     message = data['message']
-    message_type = data.get('message_type', 'text')
+    message_type = data.get('message_type', 'TEXT')
     date = datetime.strptime(data['date'], '%d-%m-%Y %H:%M:%S')
 
-    # Create new message entry in the database
-    new_message = Chat(
-        sender_id=sender_id,
-        receiver_id=receiver_id,
-        message=message,
-        message_type=message_type,
-        timestamp=date,
-        status='sent'
-    )
+    if not all([sender_id, receiver_id, message, date]):
+        emit('error', {'message': 'Missing required data.'})
+        return
+    try:
+        date = datetime.strptime(data["date"], '%d-%m-%Y %H:%M:%S')
+        message_type_enum = MessageType[message_type]
+        new_message = Chat(
+            sender_id=sender_id,
+            receiver_id=receiver_id,
+            message=message,
+            message_type=message_type_enum,
+            date=date,
+            status='sent'
+        )
 
-    db.session.add(new_message)
-    db.session.commit()
+        db.session.add(new_message)
+        db.session.commit()
 
-    emit('new_message', {
-        'sender_id': sender_id,
-        'receiver_id': receiver_id,
-        'message': message,
-        'timestamp': new_message.timestamp.isoformat(),
-        'message_type': message_type
-    }, to=str(receiver_id))
+        emit('new_message', {
+            'sender_id': sender_id,
+            'receiver_id': receiver_id,
+            'message': message,
+            'date': new_message.date.isoformat(),
+            'message_type': message_type
+        }, to=str(receiver_id))
+
+    except KeyError:
+        emit('error', {'message': 'Invalid message type.'})
+    except Exception as e:
+        print(f"Error: {e}")
+        emit('error', {'message': 'An error occurred while sending the message.'})
+
+
+@socketio.on('leave')
+def handle_leave(data):
+    username = data['username']
+    room = data['room']
+
+    # Leave the room
+    leave_room(room)
+
+    # Notify the room that a user has left
+    emit('message', {'user': 'system', 'message': f'{username} has left the room.'}, to=room)
 
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    socketio.run(app, host="0.0.0.0", port=port)
