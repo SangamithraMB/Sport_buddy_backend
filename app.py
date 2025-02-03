@@ -7,13 +7,15 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
+from flask_socketio import SocketIO, emit, join_room
 
-from models import User, Playdate, db, Sport, SportInterest, SportType, Participant
+from models import User, Playdate, db, Sport, SportInterest, SportType, Participant, Chat
 from sqlite_data import SQLiteSportBuddyDataManager
 
 load_dotenv()
 
 app = Flask(__name__)
+socketio = SocketIO(app)
 CORS(app)
 migrate = Migrate(app, db)
 
@@ -561,6 +563,7 @@ def protected():
 def check_if_token_in_blacklist(jwt_header, jwt_payload):
     """Check if a token is in the list of revoked tokens."""
     jti = jwt_payload['jti']
+    print(jwt_header)
     return jti in revoked_tokens
 
 
@@ -571,6 +574,99 @@ def logout():
     jti = get_jwt()['jti']
     revoked_tokens.add(jti)
     return jsonify({"message": "Successfully logged out!"}), 200
+
+
+@app.route('/chat', methods=['GET'])
+def get_chat():
+    chats = Chat.query.all()
+    if not chats:
+        return jsonify({"message": "no chat found"}, 404)
+
+    chat_data = [
+        {
+            "id": chat.id,
+            "sender_id": chat.sender_id,
+            "receiver_id": chat.receiver_id,
+            "message": chat.message,
+            "message_type": chat.message_type.name,
+            "status": chat.status,
+            "date": chat.date.strftime('%Y-%m-%d %H:%M:%S')
+        } for chat in chats
+    ]
+    return jsonify(chat_data)
+
+
+@app.route('/chat', methods=['POST'])
+def add_chat():
+    data = request.get_json()
+
+    # Ensure all required fields are present
+    if not all(k in data for k in ('sender_id', 'receiver_id', 'message', 'message_type', 'date', 'status')):
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    try:
+        chat_date = datetime.strptime(data['date'], '%d-%m-%Y %H:%M:%S')
+    except ValueError:
+        return jsonify({'error': 'Invalid date format'}), 400
+
+    # Create a new chat message entry in the database
+    new_chat = Chat(
+        sender_id=data['sender_id'],
+        receiver_id=data['receiver_id'],
+        message=data['message'],
+        message_type=data['message_type'],
+        date=chat_date,
+        status=data.get('status', 'sent')
+    )
+
+    # Add to the session and commit to the database
+    db.session.add(new_chat)
+    db.session.commit()
+
+    return jsonify({'message': 'Chat added successfully'}), 201
+
+
+@socketio.on('join_room')
+def handle_join_room(data):
+    room = data['room']
+    join_room(room)  # Joins the room with the name `room`
+    print(f'User has entered room: {room}')
+
+
+@socketio.on('message')
+def handle_message(message):
+    print(f"Received message: {message}")
+    socketio.send(f"Server received: {message}")
+
+
+@socketio.on('send_message')
+def handle_send_message(data):
+    sender_id = data['sender_id']
+    receiver_id = data['receiver_id']
+    message = data['message']
+    message_type = data.get('message_type', 'text')
+    date = datetime.strptime(data['date'], '%d-%m-%Y %H:%M:%S')
+
+    # Create new message entry in the database
+    new_message = Chat(
+        sender_id=sender_id,
+        receiver_id=receiver_id,
+        message=message,
+        message_type=message_type,
+        timestamp=date,
+        status='sent'
+    )
+
+    db.session.add(new_message)
+    db.session.commit()
+
+    emit('new_message', {
+        'sender_id': sender_id,
+        'receiver_id': receiver_id,
+        'message': message,
+        'timestamp': new_message.timestamp.isoformat(),
+        'message_type': message_type
+    }, to=str(receiver_id))
 
 
 if __name__ == '__main__':

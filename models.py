@@ -1,4 +1,3 @@
-from datetime import datetime
 from enum import Enum
 from flask_sqlalchemy import SQLAlchemy
 
@@ -92,6 +91,13 @@ class Participant(db.Model):
         return f'<Participant User {self.user_id} in Playdate {self.playdate_id}>'
 
 
+class MessageType(Enum):
+    TEXT = "Text"
+    AUDIO = "Audio"
+    VIDEO = "Video"
+    IMAGE = "Image"
+
+
 class Chat(db.Model):
     __tablename__ = 'chat'
 
@@ -99,8 +105,8 @@ class Chat(db.Model):
     sender_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     receiver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     message = db.Column(db.String, nullable=False)
-    message_type = db.Column(db.String(50), nullable=False, default='text')
-    timestamp = db.Column(db.DateTime)
+    message_type = db.Column(db.Enum(MessageType), nullable=False, default=MessageType.TEXT)
+    date = db.Column(db.DateTime, nullable=False)
     status = db.Column(db.String(20), default='sent')
 
     sender = db.relationship('User', foreign_keys=[sender_id], backref='sent_messages')
