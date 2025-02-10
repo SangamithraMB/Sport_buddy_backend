@@ -2,7 +2,7 @@ import os
 from abc import ABC
 from flask_sqlalchemy import SQLAlchemy
 from config import BaseModel
-from models import User, Sport, SportInterest, Playdate, Participant
+from models import User, Sport, SportInterest, Playdate, Participant, Chat
 import requests
 
 
@@ -146,3 +146,14 @@ class SQLiteSportBuddyDataManager(BaseModel, ABC):
         except KeyError:
             print("Unexpected response structure from Mapbox.")
             return None, None
+
+    def get_all_chat(self):
+        return Chat.query.all()
+
+    def get_chat_by_id(self, chat_id):
+        return Chat.query.get(chat_id)
+
+    def add_chat(self, chat):
+        """Add a new user to the database."""
+        self.db.session.add(chat)
+        self.db.session.commit()

@@ -719,4 +719,4 @@ def handle_leave(data):
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5000))
-    socketio.run(app, host="0.0.0.0", port=port)
+    socketio.run(app, host="0.0.0.0", port=port, log_output=True, use_reloader=True)

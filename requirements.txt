@@ -8,6 +8,8 @@ click==8.1.7
 colorama==0.4.6
 cors==1.0.1
 django-os-geocoder==0.1.6
+dnspython==2.7.0
+eventlet==0.39.0
 filelock==3.16.1
 Flask==2.3.2
 Flask-Cors==5.0.0
