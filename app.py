@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_migrate import Migrate
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt, decode_token, \
+    verify_jwt_in_request
 from flask_socketio import SocketIO, emit, join_room, leave_room
 
 from models import User, Playdate, db, Sport, SportInterest, SportType, Participant, Chat, MessageType
@@ -25,7 +26,9 @@ app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(basedir, "data
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Set up JWT configuration
-app.config["JWT_SECRET_KEY"] = secrets.token_hex(32)
+# app.config["JWT_SECRET_KEY"] = secrets.token_hex(32)
+app.config["JWT_SECRET_KEY"] = os.getenv("jwt-secret-key")
+print(app.config["JWT_SECRET_KEY"])
 app.config['JWT_TOKEN_LOCATION'] = ['headers']
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=8)
 app.config['JWT_BLACKLIST_ENABLED'] = True
@@ -41,7 +44,7 @@ with app.app_context():
 data_manager = SQLiteSportBuddyDataManager(db)
 
 revoked_tokens = set()
-
+users = {}
 
 @app.route('/')
 def home():
@@ -626,16 +629,48 @@ def add_chat():
     return jsonify({'message': 'Chat added successfully'}), 201
 
 
+@socketio.on("connect")
+def handle_connect():
+    auth = request.args.get("token")
+    if not auth:
+        print("No token provided, disconnecting...")
+        handle_disconnect()
+        return
+
+    try:
+        print(auth)
+        decoded = decode_token(auth)
+        print(f"✅ User {decoded['sub']} connected")
+    except Exception as e:
+        print(f"❌ Invalid token: {e}")
+        handle_disconnect()
+
+
+@socketio.on("disconnect")
+def handle_disconnect():
+    for username, room in list(users.items()):
+        if request.sid == users[username]:
+            leave_room(room)
+            emit("receive_message", {"username": "System", "message": f"{username} has left the room."}, room=room)
+            del users[username]
+            break
+    print("A user disconnected")
+
+
 @socketio.on('join')
 def handle_join(data):
-    username = data['username']
-    room = data['room']
+    try:
+        verify_jwt_in_request()  # This will now check the headers for the token
+        user = get_jwt_identity()
+        username = user["firstName"]  # Extract firstName from the token
+        room = data["room"]
 
-    # Join the room
-    join_room(room)
-
-    # Notify the room that a user has joined
-    emit('message', {'user': 'system', 'message': f'{username} has joined the room.'}, to=room)
+        join_room(room)
+        print(f"✅ User {username} joined {room}")
+        emit("receive_message", {"username": "System", "message": f"{username} joined the chat"}, to=room)
+    except Exception as e:
+        print(f"JWT Error: {str(e)}")
+        emit("receive_message", {"username": "System", "message": "Authentication failed"})
 
 
 @socketio.on('get_chat_history')
@@ -719,4 +754,4 @@ def handle_leave(data):
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5000))
-    socketio.run(app, host="0.0.0.0", port=port, log_output=True, use_reloader=True)
+    socketio.run(app, port=port, log_output=True, use_reloader=True)
