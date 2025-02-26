@@ -6,8 +6,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_migrate import Migrate
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt, decode_token, \
-    verify_jwt_in_request
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt, decode_token
 from flask_socketio import SocketIO, emit, join_room, leave_room
 
 from models import User, Playdate, db, Sport, SportInterest, SportType, Participant, Chat, MessageType
@@ -651,19 +650,21 @@ def handle_disconnect():
     for username, room in list(users.items()):
         if request.sid == users[username]:
             leave_room(room)
-            emit("receive_message", {"username": "System", "message": f"{username} has left the room."}, room=room)
+            emit("receive_message", {"username": "System", "message": f"{username} has left the room."}, to=room)
             del users[username]
             break
     print("A user disconnected")
 
 
-@socketio.on('join')
+@socketio.on('join_room')
 def handle_join(data):
     try:
-        verify_jwt_in_request()  # This will now check the headers for the token
-        user = get_jwt_identity()
-        username = user["firstName"]  # Extract firstName from the token
+        # verify_jwt_in_request()  # This will now check the headers for the token
+        # user = get_jwt_identity()
+        # username = user["firstName"]  # Extract firstName from the token
+        decoded_token = decode_token(data["token"])
         room = data["room"]
+        username = decoded_token["firstName"]
 
         join_room(room)
         print(f"✅ User {username} joined {room}")
@@ -698,40 +699,50 @@ def handle_message(message):
 
 
 @socketio.on('send_message')
-@jwt_required()
 def handle_send_message(data):
-    current_user_id = get_jwt_identity()
+    # current_user_id = get_jwt_identity()
+    decoded_token = decode_token(data["token"])
+    room = data["room"]
+    sender = decoded_token["firstName"]
+    current_user_id = decoded_token["userId"]
     sender_id = current_user_id
     receiver_id = data['receiver_id']
     message = data['message']
     message_type = data.get('message_type', 'TEXT')
-    date = datetime.strptime(data['date'], '%d-%m-%Y %H:%M:%S')
 
-    if not all([sender_id, receiver_id, message, date]):
+    # date = datetime.strptime(data['date'], '%Y-%m-%dT%H:%M:%S')
+    # Remove 'Z' and parse with datetime
+    date_utc = datetime.strptime(data['date'][:-1], "%Y-%m-%dT%H:%M:%S.%f")
+
+    # Assign UTC timezone explicitly
+    # date_utc = date_utc.replace(tzinfo=timezone.utc)
+
+    if not all([sender_id, receiver_id, message, date_utc]):
         emit('error', {'message': 'Missing required data.'})
         return
     try:
-        date = datetime.strptime(data["date"], '%d-%m-%Y %H:%M:%S')
+        # date = datetime.strptime(data["date"], '%d-%m-%Y %H:%M:%S')
         message_type_enum = MessageType[message_type]
         new_message = Chat(
             sender_id=sender_id,
             receiver_id=receiver_id,
             message=message,
             message_type=message_type_enum,
-            date=date,
+            date=date_utc,
             status='sent'
         )
 
         db.session.add(new_message)
         db.session.commit()
 
-        emit('new_message', {
+        emit('receive_message', {
             'sender_id': sender_id,
             'receiver_id': receiver_id,
             'message': message,
             'date': new_message.date.isoformat(),
-            'message_type': message_type
-        }, to=str(receiver_id))
+            'message_type': message_type,
+            'sender': sender
+        }, to=room)
 
     except KeyError:
         emit('error', {'message': 'Invalid message type.'})
@@ -740,16 +751,16 @@ def handle_send_message(data):
         emit('error', {'message': 'An error occurred while sending the message.'})
 
 
-@socketio.on('leave')
-def handle_leave(data):
-    username = data['username']
-    room = data['room']
-
-    # Leave the room
-    leave_room(room)
-
-    # Notify the room that a user has left
-    emit('message', {'user': 'system', 'message': f'{username} has left the room.'}, to=room)
+# @socketio.on('leave')
+# def handle_leave(data):
+#     username = data['username']
+#     room = data['room']
+#
+#     # Leave the room
+#     leave_room(room)
+#
+#     # Notify the room that a user has left
+#     emit('message', {'user': 'system', 'message': f'{username} has left the room.'}, to=room)
 
 
 if __name__ == '__main__':
