@@ -151,6 +151,7 @@ class SQLiteSportBuddyDataManager(BaseModel, ABC):
         return Chat.query.all()
 
     def get_chat_by_id(self, chat_id):
+        """Get a chat by using its ID."""
         return Chat.query.get(chat_id)
 
     def add_chat(self, chat):

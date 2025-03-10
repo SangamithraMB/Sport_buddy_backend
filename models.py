@@ -103,7 +103,8 @@ class Chat(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     sender_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    receiver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    receiver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    room_id = db.Column(db.Integer, db.ForeignKey('playdates.id'), nullable=True)
     message = db.Column(db.String, nullable=False)
     message_type = db.Column(db.Enum(MessageType), nullable=False, default=MessageType.TEXT)
     date = db.Column(db.DateTime, nullable=False)
@@ -111,6 +112,7 @@ class Chat(db.Model):
 
     sender = db.relationship('User', foreign_keys=[sender_id], backref='sent_messages')
     receiver = db.relationship('User', foreign_keys=[receiver_id], backref='received_messages')
+    room = db.relationship('Playdate', foreign_keys=[room_id], backref='chat_messages')
 
     def __repr__(self):
         return f"<Chat(sender_id={self.sender_id}, receiver_id={self.receiver_id}, message={self.message})>"

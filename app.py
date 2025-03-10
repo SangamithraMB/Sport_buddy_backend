@@ -1,6 +1,7 @@
 import os
 import secrets
 from datetime import datetime, timedelta
+from enum import Enum
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
@@ -8,6 +9,7 @@ from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt, decode_token
 from flask_socketio import SocketIO, emit, join_room, leave_room
+from sqlalchemy.orm import joinedload
 
 from models import User, Playdate, db, Sport, SportInterest, SportType, Participant, Chat, MessageType
 from sqlite_data import SQLiteSportBuddyDataManager
@@ -44,6 +46,7 @@ data_manager = SQLiteSportBuddyDataManager(db)
 
 revoked_tokens = set()
 users = {}
+
 
 @app.route('/')
 def home():
@@ -580,7 +583,7 @@ def logout():
 
 @app.route('/chat', methods=['GET'])
 def get_chat():
-    chats = Chat.query.all()
+    chats = data_manager.get_all_chat()
     if not chats:
         return jsonify({"message": "no chat found"}, 404)
 
@@ -589,6 +592,7 @@ def get_chat():
             "id": chat.id,
             "sender_id": chat.sender_id,
             "receiver_id": chat.receiver_id,
+            "room_id": chat.room_id,
             "message": chat.message,
             "message_type": chat.message_type.name,
             "status": chat.status,
@@ -598,13 +602,37 @@ def get_chat():
     return jsonify(chat_data)
 
 
+@app.route('/chat/<int:chat_id>', methods=['GET'])
+def get_chat_by_id(chat_id):
+    chat = data_manager.get_chat_by_id(chat_id)
+    if chat:
+        chat_data = {
+            "id": chat.id,
+            "sender_id": chat.sender_id,
+            "receiver_id": chat.receiver_id,
+            "room_id": chat.room_id,
+            "message": chat.message,
+            "message_type": chat.message_type.name,
+            "status": chat.status,
+            "date": chat.date.strftime('%Y-%m-%d %H:%M:%S')
+        }
+        return jsonify(chat_data)
+    return jsonify({"message": "Chat not found!"}), 404
+
+
 @app.route('/chat', methods=['POST'])
 def add_chat():
     data = request.get_json()
 
     # Ensure all required fields are present
-    if not all(k in data for k in ('sender_id', 'receiver_id', 'message', 'message_type', 'date', 'status')):
+    if not all(k in data for k in ('sender_id', 'message', 'message_type', 'date')):
         return jsonify({'error': 'Missing required fields'}), 400
+
+    if 'receiver_id' not in data and 'room_id' not in data:
+        return jsonify({'error': 'Either receiver_id or room_id must be provided'}), 400
+
+    if 'receiver_id' in data and 'room_id' in data:
+        return jsonify({'error': 'Cannot have both receiver_id and room_id'}), 400
 
     try:
         chat_date = datetime.strptime(data['date'], '%d-%m-%Y %H:%M:%S')
@@ -615,6 +643,7 @@ def add_chat():
     new_chat = Chat(
         sender_id=data['sender_id'],
         receiver_id=data['receiver_id'],
+        room_id=data.get('room_id'),
         message=data['message'],
         message_type=data['message_type'],
         date=chat_date,
@@ -637,7 +666,6 @@ def handle_connect():
         return
 
     try:
-        print(auth)
         decoded = decode_token(auth)
         print(f"✅ User {decoded['sub']} connected")
     except Exception as e:
@@ -668,27 +696,50 @@ def handle_join(data):
 
         join_room(room)
         print(f"✅ User {username} joined {room}")
-        emit("receive_message", {"username": "System", "message": f"{username} joined the chat"}, to=room)
+        emit("room_joined", {"username": "System", "message": f"{username} joined the chat"}, to=room)
     except Exception as e:
         print(f"JWT Error: {str(e)}")
-        emit("receive_message", {"username": "System", "message": "Authentication failed"})
+        emit("receive_message", {"username": "System", "message": "Authentication failed"}, to=room)
 
 
 @socketio.on('get_chat_history')
 def handle_chat_history(data):
-    room = data['room']
+    room = data.get('room')
+    receiver_id = data.get('receiver_id')
 
-    # Fetch chat history from the database for the room
-    chats = Chat.query.filter_by(room=room).all()
+    if not room and not receiver_id:
+        emit('error', {'message': 'Either room_id or receiver_id must be provided'})
+        return
+
+    if room:
+        chats = Chat.query.options(joinedload(Chat.sender)).filter_by(room_id=room).order_by(Chat.date).all()
+    else:
+        chats = Chat.query.filter(
+            ((Chat.sender_id == receiver_id) & (Chat.receiver_id == request.sid)) |
+            ((Chat.sender_id == request.sid) & (Chat.receiver_id == receiver_id))
+        ).order_by(Chat.date).all()
 
     # Create a list of message data to send back
-    messages = [
-        {'user': chat.sender, 'message': chat.message, 'message_type': chat.message_type.name}
-        for chat in chats
-    ]
+    messages_serialized = []
 
+    for chat in chats:
+        messages_serialized.append({
+            "id": chat.id,
+            "sender_id": chat.sender.id,
+            "receiver_id": chat.receiver_id,
+            "room_id": chat.room_id,
+            "message": chat.message,
+            "message_type": chat.message_type.name if isinstance(chat.message_type, Enum) else chat.message_type,
+            "date": chat.date.isoformat() if chat.date else None,
+            "status": chat.status,
+            "sender": chat.sender.first_name
+
+        })
+
+    print(f'sending messages of chat {room} ')
     # Emit the chat history to the client
-    emit('chat_history', {'messages': messages})
+    emit('chat_history', {'messages': messages_serialized})
+    print("here")
 
 
 @socketio.on('message')
@@ -701,31 +752,37 @@ def handle_message(message):
 @socketio.on('send_message')
 def handle_send_message(data):
     # current_user_id = get_jwt_identity()
+    print('handle send message')
     decoded_token = decode_token(data["token"])
     room = data["room"]
     sender = decoded_token["firstName"]
     current_user_id = decoded_token["userId"]
     sender_id = current_user_id
-    receiver_id = data['receiver_id']
+    receiver_id = data['receiver_id'] if not room else None
     message = data['message']
     message_type = data.get('message_type', 'TEXT')
-
+    print(1)
     # date = datetime.strptime(data['date'], '%Y-%m-%dT%H:%M:%S')
     # Remove 'Z' and parse with datetime
     date_utc = datetime.strptime(data['date'][:-1], "%Y-%m-%dT%H:%M:%S.%f")
-
+    print(2)
     # Assign UTC timezone explicitly
     # date_utc = date_utc.replace(tzinfo=timezone.utc)
-
-    if not all([sender_id, receiver_id, message, date_utc]):
-        emit('error', {'message': 'Missing required data.'})
+    print(3)
+    # Validate either room_id or receiver_id is set, but not both
+    if (room and receiver_id) or (not room and not receiver_id):
+        emit('error', {'message': 'Either receiver_id or room_id must be provided, not both.'})
         return
+    print(4)
+
+    print(5)
     try:
         # date = datetime.strptime(data["date"], '%d-%m-%Y %H:%M:%S')
         message_type_enum = MessageType[message_type]
         new_message = Chat(
             sender_id=sender_id,
             receiver_id=receiver_id,
+            room_id=room,
             message=message,
             message_type=message_type_enum,
             date=date_utc,
@@ -738,6 +795,7 @@ def handle_send_message(data):
         emit('receive_message', {
             'sender_id': sender_id,
             'receiver_id': receiver_id,
+            'room_id': room if room else None,
             'message': message,
             'date': new_message.date.isoformat(),
             'message_type': message_type,
@@ -749,20 +807,22 @@ def handle_send_message(data):
     except Exception as e:
         print(f"Error: {e}")
         emit('error', {'message': 'An error occurred while sending the message.'})
+    finally:
+        db.session.close()
 
 
-# @socketio.on('leave')
-# def handle_leave(data):
-#     username = data['username']
-#     room = data['room']
-#
-#     # Leave the room
-#     leave_room(room)
-#
-#     # Notify the room that a user has left
-#     emit('message', {'user': 'system', 'message': f'{username} has left the room.'}, to=room)
+@socketio.on('leave')
+def handle_leave(data):
+    username = data['username']
+    room = data['room']
+
+    # Leave the room
+    leave_room(room)
+
+    # Notify the room that a user has left
+    emit('message', {'user': 'system', 'message': f'{username} has left the room.'}, to=room)
 
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5000))
-    socketio.run(app, port=port, log_output=True, use_reloader=True)
+    socketio.run(app, host="0.0.0.0", port=port, log_output=True, use_reloader=True, allow_unsafe_werkzeug=True)
