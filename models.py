@@ -105,6 +105,7 @@ class Chat(db.Model):
     sender_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     receiver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     room_id = db.Column(db.Integer, db.ForeignKey('playdates.id'), nullable=True)
+    private_chat_id = db.Column(db.String, nullable=True)
     message = db.Column(db.String, nullable=False)
     message_type = db.Column(db.Enum(MessageType), nullable=False, default=MessageType.TEXT)
     date = db.Column(db.DateTime, nullable=False)

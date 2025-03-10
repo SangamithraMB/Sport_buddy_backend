@@ -691,21 +691,28 @@ def handle_join(data):
         # user = get_jwt_identity()
         # username = user["firstName"]  # Extract firstName from the token
         decoded_token = decode_token(data["token"])
-        room = data["room"]
-        username = decoded_token["firstName"]
+        # room = data.get("room")
+        firstname = decoded_token["firstName"]
+        username = decoded_token["sub"]
+        # receiver_id = data.get("receiver_id")
+        room = data.get("receiver_id") or data.get("room")
+        # if not room:
+        #             raise ValueError("Either playdate_id or receiver_id is required.")
 
         join_room(room)
         print(f"✅ User {username} joined {room}")
-        emit("room_joined", {"username": "System", "message": f"{username} joined the chat"}, to=room)
+        emit("room_joined", {"username": f"{username}", "message": f"{firstname} joined the chat"}, to=room)
     except Exception as e:
         print(f"JWT Error: {str(e)}")
-        emit("receive_message", {"username": "System", "message": "Authentication failed"}, to=room)
+        # emit("receive_message", {"username": f"{username}", "message": "Authentication failed"}, to=room)
 
 
 @socketio.on('get_chat_history')
 def handle_chat_history(data):
     room = data.get('room')
     receiver_id = data.get('receiver_id')
+    decoded_token = decode_token(data["token"])
+    current_user_id = decoded_token["userId"]
 
     if not room and not receiver_id:
         emit('error', {'message': 'Either room_id or receiver_id must be provided'})
@@ -715,8 +722,8 @@ def handle_chat_history(data):
         chats = Chat.query.options(joinedload(Chat.sender)).filter_by(room_id=room).order_by(Chat.date).all()
     else:
         chats = Chat.query.filter(
-            ((Chat.sender_id == receiver_id) & (Chat.receiver_id == request.sid)) |
-            ((Chat.sender_id == request.sid) & (Chat.receiver_id == receiver_id))
+            ((Chat.sender_id == receiver_id) & (Chat.receiver_id == current_user_id)) |
+            ((Chat.sender_id == current_user_id) & (Chat.receiver_id == receiver_id))
         ).order_by(Chat.date).all()
 
     # Create a list of message data to send back
@@ -754,13 +761,16 @@ def handle_send_message(data):
     # current_user_id = get_jwt_identity()
     print('handle send message')
     decoded_token = decode_token(data["token"])
-    room = data["room"]
+    room = data.get("playdate_id") or data.get("room")
     sender = decoded_token["firstName"]
     current_user_id = decoded_token["userId"]
     sender_id = current_user_id
     receiver_id = data['receiver_id'] if not room else None
     message = data['message']
     message_type = data.get('message_type', 'TEXT')
+    private_chat_id = None
+    if receiver_id:
+        private_chat_id = "_".join(map(str, sorted([sender_id, receiver_id])))
     print(1)
     # date = datetime.strptime(data['date'], '%Y-%m-%dT%H:%M:%S')
     # Remove 'Z' and parse with datetime
@@ -786,7 +796,8 @@ def handle_send_message(data):
             message=message,
             message_type=message_type_enum,
             date=date_utc,
-            status='sent'
+            status='sent',
+            private_chat_id=private_chat_id
         )
 
         db.session.add(new_message)
@@ -811,16 +822,14 @@ def handle_send_message(data):
         db.session.close()
 
 
-@socketio.on('leave')
+@socketio.on('leave_room')
 def handle_leave(data):
-    username = data['username']
+    # username = data['username']
     room = data['room']
 
-    # Leave the room
     leave_room(room)
 
-    # Notify the room that a user has left
-    emit('message', {'user': 'system', 'message': f'{username} has left the room.'}, to=room)
+    # emit('message', {'user': f'{username}', 'message': f'{username} has left the room.'}, to=room)
 
 
 if __name__ == '__main__':
