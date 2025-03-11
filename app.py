@@ -761,16 +761,16 @@ def handle_send_message(data):
     # current_user_id = get_jwt_identity()
     print('handle send message')
     decoded_token = decode_token(data["token"])
-    room = data.get("playdate_id") or data.get("room")
+    room = data.get("room")
     sender = decoded_token["firstName"]
     current_user_id = decoded_token["userId"]
     sender_id = current_user_id
-    receiver_id = data['receiver_id'] if not room else None
+    receiver_id = data.get('receiver_id')
     message = data['message']
     message_type = data.get('message_type', 'TEXT')
-    private_chat_id = None
-    if receiver_id:
-        private_chat_id = "_".join(map(str, sorted([sender_id, receiver_id])))
+    # private_chat_id = None
+    # if receiver_id:
+    #     private_chat_id = "_".join(map(str, sorted([sender_id, receiver_id])))
     print(1)
     # date = datetime.strptime(data['date'], '%Y-%m-%dT%H:%M:%S')
     # Remove 'Z' and parse with datetime
@@ -780,8 +780,8 @@ def handle_send_message(data):
     # date_utc = date_utc.replace(tzinfo=timezone.utc)
     print(3)
     # Validate either room_id or receiver_id is set, but not both
-    if (room and receiver_id) or (not room and not receiver_id):
-        emit('error', {'message': 'Either receiver_id or room_id must be provided, not both.'})
+    if not room:
+        emit('error', {'message': 'room_id must be provided'})
         return
     print(4)
 
@@ -796,9 +796,11 @@ def handle_send_message(data):
             message=message,
             message_type=message_type_enum,
             date=date_utc,
-            status='sent',
-            private_chat_id=private_chat_id
+            status='sent'
         )
+        if receiver_id:
+            new_message.private_chat_id = room
+            new_message.room_id = None
 
         db.session.add(new_message)
         db.session.commit()
@@ -824,12 +826,13 @@ def handle_send_message(data):
 
 @socketio.on('leave_room')
 def handle_leave(data):
-    # username = data['username']
+    decoded_token = decode_token(data["token"])
+    username = decoded_token['sub']
     room = data['room']
 
     leave_room(room)
 
-    # emit('message', {'user': f'{username}', 'message': f'{username} has left the room.'}, to=room)
+    emit('message', {'user': f'{username}', 'message': f'{username} has left the room.'}, to=room)
 
 
 if __name__ == '__main__':
