@@ -771,21 +771,16 @@ def handle_send_message(data):
     # private_chat_id = None
     # if receiver_id:
     #     private_chat_id = "_".join(map(str, sorted([sender_id, receiver_id])))
-    print(1)
     # date = datetime.strptime(data['date'], '%Y-%m-%dT%H:%M:%S')
     # Remove 'Z' and parse with datetime
     date_utc = datetime.strptime(data['date'][:-1], "%Y-%m-%dT%H:%M:%S.%f")
-    print(2)
     # Assign UTC timezone explicitly
     # date_utc = date_utc.replace(tzinfo=timezone.utc)
-    print(3)
     # Validate either room_id or receiver_id is set, but not both
     if not room:
         emit('error', {'message': 'room_id must be provided'})
         return
-    print(4)
 
-    print(5)
     try:
         # date = datetime.strptime(data["date"], '%d-%m-%Y %H:%M:%S')
         message_type_enum = MessageType[message_type]
@@ -826,13 +821,28 @@ def handle_send_message(data):
 
 @socketio.on('leave_room')
 def handle_leave(data):
-    decoded_token = decode_token(data["token"])
-    username = decoded_token['sub']
-    room = data['room']
+    token = data.get("token")
+    if not token:
+        print("Token is missing or user is logged out.")
+        return  # Exit the function if no token is present
 
-    leave_room(room)
+    # If the token exists, decode it
+    try:
+        decoded_token = decode_token(token)
+        firstname = decoded_token["firstName"]
+    except Exception as e:
+        print(f"Error decoding token: {e}")
+        return  # Exit if decoding fails
+    # Proceed with leaving the room
+    room = data.get("room")
+    if room:
+        leave_room(room)
+        # emit("leave_room", {"message": f"{firstname} has left the chat"}, to=room)
+        print(f"{firstname} has left the room.")
+    else:
+        print("No room specified.")
 
-    emit('message', {'user': f'{username}', 'message': f'{username} has left the room.'}, to=room)
+    emit('message', {'message': f'{firstname} has left the room.'}, to=room)
 
 
 if __name__ == '__main__':
