@@ -30,7 +30,9 @@ CORS(app, supports_credentials=True, origins=ALLOWED_ORIGINS)
 socketio = SocketIO(
     app,
     cors_allowed_origins=ALLOWED_ORIGINS,  # Allow both deployed and local frontend
-    transports=["websocket", "polling"],  # Allow fallback polling
+    logger=True,
+    engineio_logger=True,
+    transports=["websocket"],  # Allow fallback polling
 )
 
 migrate = Migrate(app, db)
@@ -673,6 +675,7 @@ def add_chat():
 
 @socketio.on("connect")
 def handle_connect():
+    print("connect ws")
     auth = request.args.get("token")
     if not auth:
         print("No token provided, disconnecting...")
@@ -700,6 +703,7 @@ def handle_disconnect():
 
 @socketio.on('join_room')
 def handle_join(data):
+    print("join room ws")
     try:
         # verify_jwt_in_request()  # This will now check the headers for the token
         # user = get_jwt_identity()
