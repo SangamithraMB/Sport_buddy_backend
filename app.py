@@ -17,8 +17,22 @@ from sqlite_data import SQLiteSportBuddyDataManager
 load_dotenv()
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
-CORS(app)
+# Allowed origins: Deployed frontend + Localhost (for development)
+ALLOWED_ORIGINS = [
+    "https://sport-buddy-app-render.onrender.com",  # Deployed frontend
+    "http://localhost:5173"  # Local development
+]
+
+# Enable CORS with credentials support
+CORS(app, supports_credentials=True, origins=ALLOWED_ORIGINS)
+
+# WebSocket setup with explicit origins and fallback transport
+socketio = SocketIO(
+    app,
+    cors_allowed_origins=ALLOWED_ORIGINS,  # Allow both deployed and local frontend
+    transports=["websocket", "polling"],  # Allow fallback polling
+)
+
 migrate = Migrate(app, db)
 
 # Configuring SQLite database
