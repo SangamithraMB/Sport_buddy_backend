@@ -1,5 +1,7 @@
+from gevent import monkey
+monkey.patch_all()
+
 import os
-import secrets
 from datetime import datetime, timedelta
 from enum import Enum
 
