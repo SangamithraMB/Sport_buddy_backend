@@ -1,5 +1,7 @@
+from gevent import monkey
+monkey.patch_all()
+
 import os
-import secrets
 from datetime import datetime, timedelta
 from enum import Enum
 
@@ -17,8 +19,24 @@ from sqlite_data import SQLiteSportBuddyDataManager
 load_dotenv()
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
-CORS(app)
+# Allowed origins: Deployed frontend + Localhost (for development)
+ALLOWED_ORIGINS = [
+    "https://sport-buddy-app-render.onrender.com",  # Deployed frontend
+    "http://localhost:5173"  # Local development
+]
+
+# Enable CORS with credentials support
+CORS(app, supports_credentials=True, origins=ALLOWED_ORIGINS)
+
+# WebSocket setup with explicit origins and fallback transport
+socketio = SocketIO(
+    app,
+    cors_allowed_origins=ALLOWED_ORIGINS,  # Allow both deployed and local frontend
+    logger=True,
+    engineio_logger=True,
+    transports=["websocket"],  # Allow fallback polling
+)
+
 migrate = Migrate(app, db)
 
 # Configuring SQLite database
@@ -659,6 +677,7 @@ def add_chat():
 
 @socketio.on("connect")
 def handle_connect():
+    print("connect ws")
     auth = request.args.get("token")
     if not auth:
         print("No token provided, disconnecting...")
@@ -686,6 +705,7 @@ def handle_disconnect():
 
 @socketio.on('join_room')
 def handle_join(data):
+    print("join room ws")
     try:
         # verify_jwt_in_request()  # This will now check the headers for the token
         # user = get_jwt_identity()

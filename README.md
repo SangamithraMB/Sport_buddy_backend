@@ -9,6 +9,9 @@ Welcome to the backend of the Sport Buddy App! This app connects users who share
 - Playdates: Create and join playdates based on your favorite sports. 
 - Sport Interests: Users can express their interest in different sports. 
 - Participants: Users can join or leave playdates, and track participants for each event.
+ 
+### ERD (Entity Relationship Diagram)
+![ERD](/static/erd.png)
 
 ### **Setup**
 
